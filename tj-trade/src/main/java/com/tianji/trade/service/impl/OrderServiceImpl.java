@@ -31,6 +31,7 @@ import com.tianji.trade.service.ICartService;
 import com.tianji.trade.service.IOrderDetailService;
 import com.tianji.trade.service.IOrderService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -54,6 +55,7 @@ import static com.tianji.trade.constants.TradeErrorInfo.ORDER_NOT_EXISTS;
  * @since 2022-08-29
  */
 @Service
+@Slf4j
 @RequiredArgsConstructor
 public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements IOrderService {
 
@@ -133,7 +135,13 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
         Long userId = UserContext.getUser();
         // 1.查询课程信息
         List<Long> cIds = CollUtils.singletonList(courseId);
-        List<CourseSimpleInfoDTO> courseInfos = getOnShelfCourse(cIds);
+        List<CourseSimpleInfoDTO> courseInfos;
+        try {
+            courseInfos = getOnShelfCourse(cIds);
+        } catch (Exception e) {
+            log.error("查询课程信息失败，courseId: {}", courseId, e);
+            throw e;
+        }
         if (CollUtils.isEmpty(courseInfos)) {
             // 课程不存在
             throw new BizIllegalException(TradeErrorInfo.COURSE_NOT_EXISTS);
