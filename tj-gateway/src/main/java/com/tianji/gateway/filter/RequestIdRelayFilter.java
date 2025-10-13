@@ -12,6 +12,9 @@ import reactor.core.publisher.Mono;
 
 import static com.tianji.common.constants.Constant.*;
 
+/**
+ * RequestIdRelayFilter 是 运维核心，负责“给每个请求打上追踪单号，方便事后查问题”。
+ */
 @Slf4j
 @Component
 public class RequestIdRelayFilter implements GlobalFilter, Ordered {

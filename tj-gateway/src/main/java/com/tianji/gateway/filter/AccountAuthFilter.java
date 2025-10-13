@@ -18,6 +18,9 @@ import java.util.List;
 import static com.tianji.auth.common.constants.JwtConstants.AUTHORIZATION_HEADER;
 import static com.tianji.auth.common.constants.JwtConstants.USER_HEADER;
 
+/**
+ * AccountAuthFilter 是 安全核心，负责“你是谁？”和“你有没有权限？”的问题。
+ */
 @Component
 public class AccountAuthFilter implements GlobalFilter, Ordered {
 
