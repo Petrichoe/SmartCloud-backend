@@ -8,9 +8,7 @@ import com.tianji.learning.service.ILearningLessonService;
 import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
 import lombok.RequiredArgsConstructor;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 /**
  * <p>
@@ -38,6 +36,14 @@ public class LearningLessonController {
     public LearningLessonVO queryMyCurrentLesson() {
         return lessonService.queryMyCurrentLesson();
     }
+
+    @ApiOperation("删除我的课程")
+    @DeleteMapping("/{courseId}")
+    public void deleteMyLesson(@PathVariable("courseId") Long courseId) {
+        lessonService.deleteMyLesson(courseId);
+    }
+
+
 
 
 

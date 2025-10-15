@@ -24,4 +24,14 @@ public interface ILearningLessonService extends IService<LearningLesson> {
     PageDTO<LearningLessonVO> queryMyLessons(PageQuery pageQuery);
 
     LearningLessonVO queryMyCurrentLesson();
+
+    /**
+     * 当用户退款时异步自动删除用户课程
+     * @param userId
+     * @param courseIds
+     */
+    void deleteUserLessons(Long userId, List<Long> courseIds);
+
+
+    void deleteMyLesson(Long courseId);
 }

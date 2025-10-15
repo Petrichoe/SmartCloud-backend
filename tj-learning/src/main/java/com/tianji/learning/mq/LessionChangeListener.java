@@ -42,5 +42,21 @@ public class LessionChangeListener {
 
     }
 
+    @RabbitListener(bindings = @QueueBinding(
+            value = @Queue(value = "learning.lesson.refund.queue", durable = "true"),
+            exchange = @Exchange(name = MqConstants.Exchange.ORDER_EXCHANGE, type = ExchangeTypes.TOPIC),
+            key = MqConstants.Key.ORDER_REFUND_KEY
+    ))
+    public void handleOrderRefundMessage(OrderBasicDTO order) {
+        if(order==null||order.getUserId()==null|| CollUtils.isEmpty(order.getCourseIds())){
+            // 数据有误，无需处理
+            log.error("接收到MQ消息有误，订单数据为空");
+            return;
+        }
+        // 2.删除课程
+        log.debug("监听到用户{}的订单{}退款，需要删除课程{}", order.getUserId(), order.getOrderId(), order.getCourseIds());
+        lessonService.deleteUserLessons(order.getUserId(), order.getCourseIds());
+    }
+
 
 }

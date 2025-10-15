@@ -20,6 +20,7 @@ import com.tianji.learning.mapper.LearningLessonMapper;
 import com.tianji.learning.service.ILearningLessonService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -28,6 +29,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+import org.springframework.scheduling.annotation.Scheduled;
 
 /**
  * <p>
@@ -45,6 +47,8 @@ public class LearningLessonServiceImpl extends ServiceImpl<LearningLessonMapper,
     final CourseClient courseClient;
 
     private final CatalogueClient catalogueClient;
+
+
 
 
     @Override
@@ -146,8 +150,77 @@ public class LearningLessonServiceImpl extends ServiceImpl<LearningLessonMapper,
         }
         return vo;
 
+    }
+
+    //TODO 当用户退款时异步自动删除用户课程
+    @Override
+    public void deleteUserLessons(Long userId, List<Long> courseIds) {
+        // 1.根据用户id和课程id查询课程
+        List<LearningLesson> lessons = lambdaQuery()
+                .eq(LearningLesson::getUserId, userId)
+                .in(LearningLesson::getCourseId, courseIds)
+                .list();
+        if (CollUtils.isEmpty(lessons)) {
+            return;
+        }
+        log.debug("查询到用户{}的课程信息{}条", userId, lessons.size());
+
+        // 2.获取课表id
+        List<Long> lessonIds = lessons.stream().map(LearningLesson::getId).collect(Collectors.toList());
 
 
+        // 4.根据id删除课表
+        removeByIds(lessonIds);
+        log.debug("删除用户{}的课表{}条", userId, lessonIds.size());
+    }
+
+
+
+    @Override
+    public void deleteMyLesson(Long courseId) {
+        // 1.获取当前登录人
+        Long userId = UserContext.getUser();
+        // 2.根据用户id和课程id查询课程
+        LearningLesson lesson = lambdaQuery()
+                .eq(LearningLesson::getUserId, userId)
+                .eq(LearningLesson::getCourseId, courseId)
+                .one();
+        if (lesson == null) {
+            throw new BadRequestException("课程不存在");
+        }
+
+        // 3.判断课程是否过期
+        /*LocalDateTime expireTime = lesson.getExpireTime();
+        if (expireTime == null || expireTime.isAfter(LocalDateTime.now())) {
+            throw new BadRequestException("课程未过期，无法删除");
+        }*/
+
+        if(lesson.getStatus() == LessonStatus.EXPIRED){
+            // 4.删除课程
+            deleteUserLessons(userId, CollUtils.singletonList(courseId));
+        }
+
+    }
+
+    /**
+     * 定时任务，检查课表状态
+     */
+    @Scheduled(cron = "0 0 12-18 * * ?")
+    public void checkLessonStatus(){
+        // 1.查询所有已过期但状态未更新的课程
+        List<LearningLesson> lessons = lambdaQuery()
+                .lt(LearningLesson::getExpireTime, LocalDateTime.now())
+                .ne(LearningLesson::getStatus, LessonStatus.EXPIRED)
+                .list();
+        if (CollUtils.isEmpty(lessons)) {
+            return;
+        }
+        // 2.更新状态
+        for (LearningLesson lesson : lessons) {
+            lesson.setStatus(LessonStatus.EXPIRED);
+        }
+        // 3.批量更新
+        updateBatchById(lessons);
     }
 
     private Map<Long, CourseSimpleInfoDTO> queryCourseSimpleInfoList(List<LearningLesson> records) {
