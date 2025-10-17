@@ -4,11 +4,14 @@ package com.tianji.learning.controller;
 import com.tianji.common.domain.dto.PageDTO;
 import com.tianji.common.domain.query.PageQuery;
 import com.tianji.learning.domain.vo.LearningLessonVO;
+import com.tianji.learning.domain.vo.UserLessonStatusVO;
 import com.tianji.learning.service.ILearningLessonService;
 import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
 
 /**
  * <p>
@@ -43,7 +46,23 @@ public class LearningLessonController {
         lessonService.deleteMyLesson(courseId);
     }
 
+    @ApiOperation("校验当前用户是否可以学习当前课程")
+    @GetMapping("/{courseId}/valid")
+    public Long isLessonValid(@PathVariable("courseId") Long courseId) {
+        return lessonService.isLessonValid(courseId);
+    }
 
+    @ApiOperation("查询用户课表中指定课程状态")
+    @GetMapping("/{courseId}")
+    public UserLessonStatusVO queryUserLessonStatus(@PathVariable("courseId") Long courseId) {
+        return lessonService.queryUserLessonStatus(courseId);
+    }
+
+    @ApiOperation("为指定用户创建课程计划")
+    @PostMapping("/plans")
+    public void createUserLessons(Long courseId,Integer weekFreq) {
+
+    }
 
 
 

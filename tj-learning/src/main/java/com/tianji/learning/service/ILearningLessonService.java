@@ -5,6 +5,7 @@ import com.tianji.common.domain.dto.PageDTO;
 import com.tianji.common.domain.query.PageQuery;
 import com.tianji.learning.domain.po.LearningLesson;
 import com.tianji.learning.domain.vo.LearningLessonVO;
+import com.tianji.learning.domain.vo.UserLessonStatusVO;
 
 import java.util.List;
 
@@ -34,4 +35,18 @@ public interface ILearningLessonService extends IService<LearningLesson> {
 
 
     void deleteMyLesson(Long courseId);
+
+    /**
+     * 检查用户课程是否有效
+     * @param courseId
+     * @return
+     */
+    Long isLessonValid(Long courseId);
+
+    /**
+     * 查询用户课表中指定课程状态
+     * @param courseId
+     * @return
+     */
+    UserLessonStatusVO queryUserLessonStatus(Long courseId);
 }

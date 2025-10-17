@@ -1,5 +1,6 @@
 package com.tianji.learning.service.impl;
 
+import com.baomidou.mybatisplus.extension.conditions.query.LambdaQueryChainWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.tianji.api.client.course.CatalogueClient;
@@ -15,6 +16,7 @@ import com.tianji.common.utils.CollUtils;
 import com.tianji.common.utils.UserContext;
 import com.tianji.learning.domain.po.LearningLesson;
 import com.tianji.learning.domain.vo.LearningLessonVO;
+import com.tianji.learning.domain.vo.UserLessonStatusVO;
 import com.tianji.learning.enums.LessonStatus;
 import com.tianji.learning.mapper.LearningLessonMapper;
 import com.tianji.learning.service.ILearningLessonService;
@@ -23,6 +25,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -202,6 +205,50 @@ public class LearningLessonServiceImpl extends ServiceImpl<LearningLessonMapper,
 
     }
 
+    @Override
+    public Long isLessonValid(Long courseId) {
+        // 1.获取当前登录人
+        Long userId = UserContext.getUser();
+        // 2.根据用户id和课程id查询课程
+        LearningLesson lesson = lambdaQuery()
+                .eq(LearningLesson::getUserId, userId)
+                .eq(LearningLesson::getCourseId, courseId)
+                .one();
+        if (lesson==null){
+            throw new BadRequestException("课程不存在");
+        }
+        if (lesson.getStatus() == LessonStatus.EXPIRED){
+            throw new BadRequestException("课程已过期");
+        }else {
+            return lesson.getId();
+        }
+
+
+    }
+
+    @Override
+    public UserLessonStatusVO queryUserLessonStatus(Long courseId) {
+        Long userId = UserContext.getUser();
+        LearningLesson lesson = lambdaQuery().eq(LearningLesson::getUserId, userId)
+                .eq(LearningLesson::getCourseId, courseId)
+                .one();
+        if (lesson == null) {
+            throw new BadRequestException("课程不存在");
+        }
+        UserLessonStatusVO vo = new UserLessonStatusVO();
+        vo.setId(lesson.getId());
+        vo.setCourseId(lesson.getCourseId());
+        vo.setStatus(lesson.getStatus());
+        vo.setLearnedSections(lesson.getLearnedSections());
+        vo.setCreateTime(lesson.getCreateTime().toLocalDate());
+        if (lesson.getExpireTime() != null) {
+            vo.setExpireTime(lesson.getExpireTime().toLocalDate());
+        }
+        vo.setPlanStatus(lesson.getPlanStatus());
+        return vo;
+    }
+
+
     /**
      * 定时任务，检查课表状态
      */
@@ -237,4 +284,8 @@ public class LearningLessonServiceImpl extends ServiceImpl<LearningLessonMapper,
                 .collect(Collectors.toMap(CourseSimpleInfoDTO::getId, c -> c));
         return cMap;
     }
+
+
+
+
 }
