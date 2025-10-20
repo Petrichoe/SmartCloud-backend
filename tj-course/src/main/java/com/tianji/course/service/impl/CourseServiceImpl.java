@@ -55,7 +55,8 @@ import java.util.stream.Collectors;
  */
 @Service
 @Slf4j
-public class CourseServiceImpl extends ServiceImpl<CourseMapper, Course> implements ICourseService {
+public class
+CourseServiceImpl extends ServiceImpl<CourseMapper, Course> implements ICourseService {
 
     @Autowired
     private CourseTeacherMapper courseTeacherMapper;

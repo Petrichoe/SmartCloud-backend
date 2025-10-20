@@ -3,7 +3,10 @@ package com.tianji.learning.controller;
 
 import com.tianji.common.domain.dto.PageDTO;
 import com.tianji.common.domain.query.PageQuery;
+import com.tianji.learning.domain.dto.LearningPlanDTO;
 import com.tianji.learning.domain.vo.LearningLessonVO;
+import com.tianji.learning.domain.vo.LearningPlanPageVO;
+import com.tianji.learning.domain.vo.LearningPlanVO;
 import com.tianji.learning.domain.vo.UserLessonStatusVO;
 import com.tianji.learning.service.ILearningLessonService;
 import io.swagger.annotations.Api;
@@ -11,6 +14,7 @@ import io.swagger.annotations.ApiOperation;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
+import javax.validation.Valid;
 import java.util.List;
 
 /**
@@ -58,11 +62,19 @@ public class LearningLessonController {
         return lessonService.queryUserLessonStatus(courseId);
     }
 
-    @ApiOperation("为指定用户创建课程计划")
+    @ApiOperation("创建学习计划")
     @PostMapping("/plans")
-    public void createUserLessons(Long courseId,Integer weekFreq) {
-
+    public void createUserLessons(@Valid @RequestBody LearningPlanDTO plan) {
+         lessonService.createLearningPlan(plan.getCourseId(), plan.getFreq());
     }
+
+    @ApiOperation("查询我的学习计划")
+    @GetMapping("/plans")
+    public LearningPlanPageVO queryUserLessonPlan(PageQuery pageQuery) {
+         return lessonService.queryMyPlan(pageQuery);
+    }
+
+
 
 
 
