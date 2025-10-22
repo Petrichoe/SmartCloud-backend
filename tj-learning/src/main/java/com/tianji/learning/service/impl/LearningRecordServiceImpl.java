@@ -17,6 +17,7 @@ import com.tianji.learning.mapper.LearningRecordMapper;
 import com.tianji.learning.service.ILearningLessonService;
 import com.tianji.learning.service.ILearningRecordService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.tianji.learning.utils.LearningRecordDelayTaskHandler;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -40,6 +41,8 @@ public class LearningRecordServiceImpl extends ServiceImpl<LearningRecordMapper,
     private final ILearningLessonService lessonService;
 
     private final CourseClient courseClient;
+
+    private final LearningRecordDelayTaskHandler delayTaskHandler;
 
     @Override
     public LearningLessonDTO queryLearningRecordByCourse(Long courseId) {
@@ -77,6 +80,11 @@ public class LearningRecordServiceImpl extends ServiceImpl<LearningRecordMapper,
         }else{
             //处理考试
             finished=handleExamRecord(learningRecordFormDTO, userId);
+        }
+        //数据库优化处理
+        if (!finished) {
+            // 没有新学完的小节，无需更新课表中的学习进度
+            return;
         }
 
         // 3.处理课表数据
@@ -125,69 +133,68 @@ public class LearningRecordServiceImpl extends ServiceImpl<LearningRecordMapper,
 
     }
 
-            private boolean handleVideoRecord(LearningRecordFormDTO learningRecordFormDTO, Long userId) {
+    private boolean handleVideoRecord(LearningRecordFormDTO learningRecordFormDTO, Long userId) {
 
-                LearningRecord record = lambdaQuery().eq(LearningRecord::getUserId, userId)
+        // 1.查询旧的学习记录
+        LearningRecord old = queryOldRecord(learningRecordFormDTO.getLessonId(), learningRecordFormDTO.getSectionId());
 
-                        .eq(LearningRecord::getSectionId, learningRecordFormDTO.getSectionId())
-
-                        .one();
-
-                //如果没有记录，就新建记录，否则更新记录
-
-                if (record == null) {
-
-                    LearningRecord learningRecord = BeanUtils.copyBean(learningRecordFormDTO, LearningRecord.class);
-
-                    learningRecord.setUserId(userId);
-
-                    boolean success = save(learningRecord);
-
-                    if (!success) {
-
-                        throw new DbException("新增学习记录失败！");
-
-                    }
-
-                    return false;
-
-        
-
-                }
-
-        
-
-                // 4.存在，则更新
-
-                // 4.1.判断是否是第一次完成
-
-                boolean finished = !record.getFinished() && learningRecordFormDTO.getMoment() * 2 >= learningRecordFormDTO.getDuration();
-
-                // 4.2.更新数据
-
-                boolean update = lambdaUpdate()
-
-                        .set(LearningRecord::getMoment, learningRecordFormDTO.getMoment())
-
-                        .set(finished, LearningRecord::getFinished, true)//finished为true就把getFinished设置为true否则跳过
-
-                        .set(finished, LearningRecord::getUpdateTime, learningRecordFormDTO.getCommitTime())
-
-                        .eq(LearningRecord::getId, record.getId())
-
-                        .update();
-
-                if (!update){
-
-                    throw new DbException("更新学习记录失败！");
-
-                }
-
-        
-
-                return finished;
-
+        //如果没有记录，就新建记录，否则更新记录
+        if (old == null) {
+            LearningRecord learningRecord = BeanUtils.copyBean(learningRecordFormDTO, LearningRecord.class);
+            learningRecord.setUserId(userId);
+            boolean success = save(learningRecord);
+            if (!success) {
+                throw new DbException("新增学习记录失败！");
             }
+            return false;
+        }
+
+        // 4.存在，则更新
+        // 4.1.判断是否是第一次完成
+        boolean finished = !old.getFinished() && learningRecordFormDTO.getMoment() * 2 >= learningRecordFormDTO.getDuration();
+        if (!finished) {
+            LearningRecord record1 = new LearningRecord();
+            record1.setLessonId(learningRecordFormDTO.getLessonId());
+            record1.setSectionId(learningRecordFormDTO.getSectionId());
+            record1.setMoment(learningRecordFormDTO.getMoment());
+            record1.setId(old.getId());
+            record1.setFinished(old.getFinished());
+            delayTaskHandler.addLearningRecordTask(record1);
+            return false;
+        }
+        // 4.2.更新数据
+        boolean update = lambdaUpdate()
+                .set(LearningRecord::getMoment, learningRecordFormDTO.getMoment())
+                .set(finished, LearningRecord::getFinished, true)//finished为true就把getFinished设置为true否则跳过
+                .set(finished, LearningRecord::getUpdateTime, learningRecordFormDTO.getCommitTime())
+                .eq(LearningRecord::getId, old.getId())
+                .update();
+
+        if (!update){
+            throw new DbException("更新学习记录失败！");
+        }
+        // 4.3.清理缓存
+        delayTaskHandler.cleanRecordCache(learningRecordFormDTO.getLessonId(),learningRecordFormDTO.getSectionId());
+        return true;
+
+    }
+
+    private LearningRecord queryOldRecord(Long lessonId, Long sectionId) {
+        // 1.查询缓存
+        LearningRecord record = delayTaskHandler.readRecordCache(lessonId, sectionId);
+        // 2.如果命中，直接返回
+        if (record != null) {
+            return record;
+        }
+        // 3.未命中，查询数据库
+        record = lambdaQuery()
+                .eq(LearningRecord::getLessonId, lessonId)
+                .eq(LearningRecord::getSectionId, sectionId)
+                .one();
+        // 4.写入缓存
+        delayTaskHandler.writeRecordCache(record);
+        return record;
+    }
 
 
 }
