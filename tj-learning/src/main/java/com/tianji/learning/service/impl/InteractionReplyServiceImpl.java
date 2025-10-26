@@ -146,17 +146,21 @@ public class InteractionReplyServiceImpl extends ServiceImpl<InteractionReplyMap
             throw new BadRequestException("问题id和回答id不能都为空");
         }
 
+
         // 2. 分页查询回答或评论
+        //目的：从 interaction_reply 表中获取原始的回复或评论数据。
         Page<InteractionReply> page = lambdaQuery()
                 .eq(query.getQuestionId() != null, InteractionReply::getQuestionId, query.getQuestionId())
                 .eq(query.getAnswerId() != null, InteractionReply::getAnswerId, query.getAnswerId())
                 .eq(InteractionReply::getHidden, false) // 不查询被隐藏的
                 .page(query.toMpPageDefaultSortByCreateTimeDesc());
 
-        List<InteractionReply> records = page.getRecords();
+        List<InteractionReply> records = page.getRecords();//从分页结果中获取查询到的数据列表
         if (CollUtils.isEmpty(records)) {
             return PageDTO.empty(page);
         }
+
+//3与4是对于业务逻辑效率的优化,先把需要的ID放到集合中，然后通过一次网络调用查询全部用户信息
 
         // 3. 收集需要查询的用户ID和目标用户ID
         Set<Long> userIds = new HashSet<>();
