@@ -2,6 +2,7 @@ package com.tianji.learning.service.impl;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.tianji.api.client.remark.RemarkClient;
 import com.tianji.api.client.user.UserClient;
 import com.tianji.api.dto.user.UserDTO;
 import com.tianji.common.domain.dto.PageDTO;
@@ -39,6 +40,7 @@ public class InteractionReplyServiceImpl extends ServiceImpl<InteractionReplyMap
 
     private final IInteractionQuestionService questionService;
     private final UserClient userClient;
+    private final RemarkClient remarkClient;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -187,12 +189,23 @@ public class InteractionReplyServiceImpl extends ServiceImpl<InteractionReplyMap
             }
         }
 
-        // 5. 封装VO
+        // 5. 查询当前用户的点赞状态
+        Set<Long> bizLikedIds = new HashSet<>();
+        // 5.1 收集所有回答的ID
+        Set<Long> replyIds = records.stream()
+                .map(InteractionReply::getId)
+                .collect(Collectors.toSet());
+        // 5.2 批量查询当前用户点赞过的回答ID
+        if (CollUtils.isNotEmpty(replyIds)) {
+            bizLikedIds = remarkClient.isBizLiked(replyIds);
+        }
+
+        // 6. 封装VO
         List<ReplyVO> voList = new ArrayList<>(records.size());
         for (InteractionReply reply : records) {
             ReplyVO vo = BeanUtils.copyBean(reply, ReplyVO.class);
 
-            // 5.1 封装回答者/评论者信息
+            // 6.1 封装回答者/评论者信息
             if (!reply.getAnonymity()) {
                 UserDTO user = userMap.get(reply.getUserId());
                 if (user != null) {
@@ -203,13 +216,16 @@ public class InteractionReplyServiceImpl extends ServiceImpl<InteractionReplyMap
                 }
             }
 
-            // 5.2 封装目标用户名字（评论场景）
+            // 6.2 封装目标用户名字（评论场景）
             if (reply.getTargetUserId() != null) {
                 UserDTO targetUser = userMap.get(reply.getTargetUserId());
                 if (targetUser != null) {
                     vo.setTargetUserName(targetUser.getName());
                 }
             }
+
+            // 6.3 封装点赞状态
+            vo.setLiked(bizLikedIds.contains(reply.getId()));
 
             voList.add(vo);
         }
