@@ -2,19 +2,28 @@ package com.tianji.learning.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.tianji.api.cache.CategoryCache;
+import com.tianji.api.client.course.CatalogueClient;
+import com.tianji.api.client.course.CourseClient;
+import com.tianji.api.client.search.SearchClient;
 import com.tianji.api.client.user.UserClient;
+import com.tianji.api.dto.course.CataSimpleInfoDTO;
+import com.tianji.api.dto.course.CourseSimpleInfoDTO;
 import com.tianji.api.dto.user.UserDTO;
 import com.tianji.common.domain.dto.PageDTO;
 import com.tianji.common.exceptions.BadRequestException;
 import com.tianji.common.exceptions.ForbiddenException;
 import com.tianji.common.utils.BeanUtils;
 import com.tianji.common.utils.CollUtils;
+import com.tianji.common.utils.StringUtils;
 import com.tianji.common.utils.UserContext;
 import com.tianji.learning.domain.dto.QuestionFormDTO;
 import com.tianji.learning.domain.dto.QuestionUpdateDTO;
 import com.tianji.learning.domain.po.InteractionQuestion;
 import com.tianji.learning.domain.po.InteractionReply;
+import com.tianji.learning.domain.query.QuestionAdminPageQuery;
 import com.tianji.learning.domain.query.QuestionPageQuery;
+import com.tianji.learning.domain.vo.QuestionAdminVO;
 import com.tianji.learning.domain.vo.QuestionVO;
 import com.tianji.learning.mapper.InteractionQuestionMapper;
 import com.tianji.learning.mapper.InteractionReplyMapper;
@@ -23,6 +32,7 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -40,6 +50,14 @@ public class InteractionQuestionServiceImpl extends ServiceImpl<InteractionQuest
     private final InteractionReplyMapper replyMapper;
 
     private final UserClient userClient;
+
+    private final CourseClient courseClient;
+
+    private final SearchClient searchClient;
+
+    private final CatalogueClient catalogueClient;
+
+    private final CategoryCache categoryCache;
 
     @Override
     public void saveQuestion(QuestionFormDTO questionFormDTO) {
@@ -212,5 +230,83 @@ public class InteractionQuestionServiceImpl extends ServiceImpl<InteractionQuest
         removeById(id);
         // 5.然后删除问题下的回答及评论
         replyMapper.delete(new LambdaQueryWrapper<InteractionReply>().eq(InteractionReply::getQuestionId, id));
+    }
+
+    @Override
+    public PageDTO<QuestionAdminVO> queryQuestionPageAdmin(QuestionAdminPageQuery query) {
+        //根据课程名称查询课程id
+        List<Long> courseIds=null;
+        if (StringUtils.isNotBlank(query.getCourseName())){
+            courseIds = searchClient.queryCoursesIdByName(query.getCourseName());
+            if (CollUtils.isEmpty(courseIds)){
+                return null;
+            }
+        }
+        //分页查询
+        Integer status = query.getStatus();
+        LocalDateTime beginTime = query.getBeginTime();
+        LocalDateTime endTime = query.getEndTime();
+        Page<InteractionQuestion> page = lambdaQuery().in(courseIds != null, InteractionQuestion::getCourseId, courseIds)
+                .eq(status != null, InteractionQuestion::getStatus, status)
+                .gt(beginTime != null, InteractionQuestion::getCreateTime, beginTime)
+                .lt(endTime != null, InteractionQuestion::getCreateTime, endTime)
+                .page(query.toMpPageDefaultSortByCreateTimeDesc());
+        List<InteractionQuestion> records = page.getRecords();
+        if (CollUtils.isEmpty(records)){
+            return PageDTO.empty(page);
+        }
+
+        //为什么用Set来存储呢:去重
+        Set<Long> userIds = new HashSet<>();
+        Set<Long> cIds = new HashSet<>();
+        Set<Long> chapterIds = new HashSet<>();
+        //获取各种id的集合
+        for (InteractionQuestion r : records){
+            userIds.add(r.getUserId());
+            cIds.add(r.getCourseId());
+            chapterIds.add(r.getChapterId());
+            chapterIds.add(r.getSectionId());
+        }
+
+        List<UserDTO> users = userClient.queryUserByIds(userIds);
+        Map<Long, UserDTO> userMap=new HashMap<>(users.size()); //使用Map可以在随后瞬时查找
+        if (CollUtils.isNotEmpty(users)){
+            userMap = users.stream().collect(Collectors.toMap(UserDTO::getId, u -> u));
+        }
+
+        List<CourseSimpleInfoDTO> courses = courseClient.getSimpleInfoList(cIds);
+        Map<Long, CourseSimpleInfoDTO> courseMap=new HashMap<>(courses.size());
+        if (CollUtils.isNotEmpty(courses)){
+            courseMap = courses.stream().collect(Collectors.toMap(CourseSimpleInfoDTO::getId, c -> c));
+        }
+
+        List<CataSimpleInfoDTO> catas = catalogueClient.batchQueryCatalogue(chapterIds);
+        Map<Long, String> cataMap=new HashMap<>(catas.size());
+        if (CollUtils.isNotEmpty(catas)){
+            cataMap = catas.stream().collect(Collectors.toMap(CataSimpleInfoDTO::getId,CataSimpleInfoDTO::getName ));
+
+        }
+
+        List<QuestionAdminVO> voList=new ArrayList<>(records.size());
+        for (InteractionQuestion r : records){
+            QuestionAdminVO vo = BeanUtils.copyBean(r, QuestionAdminVO.class);
+            voList.add(vo);
+
+            UserDTO user = userMap.get(r.getUserId());
+            if (user != null) {
+                vo.setUserName(user.getName());
+            }
+
+            CourseSimpleInfoDTO course = courseMap.get(r.getCourseId());
+            if (course != null) {
+                vo.setCourseName(course.getName());//理解下面这个
+                vo.setCategoryName(categoryCache.getCategoryNames(course.getCategoryIds()));
+
+            }
+
+            vo.setChapterName(cataMap.getOrDefault(r.getChapterId(), ""));
+            vo.setChapterName(cataMap.getOrDefault(r.getSectionId(), ""));
+        }
+        return PageDTO.of(page, voList);
     }
 }
