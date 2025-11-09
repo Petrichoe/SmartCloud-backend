@@ -2,4 +2,58 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.tianji.learning.mapper.PointsBoardMapper">
 
+    <!-- 创建榜单表（包含rank和season字段，用于历史赛季） -->
+    <insert id="createPointsBoardTable" parameterType="java.lang.String">
+        CREATE TABLE IF NOT EXISTS `${tableName}`
+        (
+            `id`      BIGINT NOT NULL AUTO_INCREMENT COMMENT '榜单id',
+            `user_id` BIGINT NOT NULL COMMENT '学生id',
+            `points`  INT    NOT NULL COMMENT '积分值',
+            `rank`    INT    NOT NULL COMMENT '名次，只记录赛季前100',
+            `season`  INT    NOT NULL COMMENT '赛季，例如 1,就是第一赛季，2-就是第二赛季',
+            PRIMARY KEY (`id`) USING BTREE,
+            INDEX `idx_user_id` (`user_id`) USING BTREE,
+            INDEX `idx_season` (`season`) USING BTREE,
+            INDEX `idx_rank` (`rank`) USING BTREE
+        )
+            COMMENT ='学霸天梯榜'
+            COLLATE = 'utf8mb4_0900_ai_ci'
+            ENGINE = InnoDB
+            ROW_FORMAT = DYNAMIC
+    </insert>
+
+    <!-- 批量插入榜单数据到指定表 -->
+    <insert id="batchInsertToTable">
+        INSERT INTO `${tableName}` (`user_id`, `points`, `rank`, `season`)
+        VALUES
+        <foreach collection="list" item="item" separator=",">
+            (#{item.userId}, #{item.points}, #{item.rank}, #{item.season})
+        </foreach>
+    </insert>
+
+    <!-- 查询指定用户在历史赛季的榜单记录 -->
+    <select id="queryUserHistoryBoard" resultType="com.tianji.learning.domain.po.PointsBoard">
+        SELECT id, user_id, points, `rank`, season
+        FROM `${tableName}`
+        WHERE user_id = #{userId} AND season = #{season}
+        LIMIT 1
+    </select>
+
+    <!-- 分页查询历史赛季榜单列表 -->
+    <select id="queryHistoryBoardList" resultType="com.tianji.learning.domain.po.PointsBoard">
+        SELECT id, user_id, points, `rank`, season
+        FROM `${tableName}`
+        WHERE season = #{season}
+        ORDER BY `rank` ASC
+        LIMIT #{offset}, #{pageSize}
+    </select>
+
+    <!-- 检查表是否存在 -->
+    <select id="checkTableExists" resultType="java.lang.Integer">
+        SELECT COUNT(1)
+        FROM information_schema.TABLES
+        WHERE TABLE_SCHEMA = (SELECT DATABASE())
+          AND TABLE_NAME = #{tableName}
+    </select>
+
 </mapper>
