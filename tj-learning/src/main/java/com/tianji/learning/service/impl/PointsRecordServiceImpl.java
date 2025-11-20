@@ -4,12 +4,16 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.tianji.common.utils.DateUtils;
 import com.tianji.common.utils.UserContext;
+import com.tianji.learning.constans.RedisConstants;
 import com.tianji.learning.domain.po.PointsRecord;
 import com.tianji.learning.domain.vo.PointsStatisticsVO;
 import com.tianji.learning.enums.PointsRecordType;
 import com.tianji.learning.mapper.PointsRecordMapper;
 import com.tianji.learning.service.IPointsRecordService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import lombok.RequiredArgsConstructor;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -25,8 +29,17 @@ import java.util.stream.Collectors;
  * @since 2025-10-30
  */
 @Service
+@RequiredArgsConstructor
 public class PointsRecordServiceImpl extends ServiceImpl<PointsRecordMapper, PointsRecord> implements IPointsRecordService {
 
+    private final StringRedisTemplate redisTemplate;
+
+    /**
+     * 异步处理添加积分
+     * @param userId
+     * @param points
+     * @param type
+     */
     @Override
     public void addPointsRecord(Long userId, int points, PointsRecordType type) {
         int maxPoints = type.getMaxPoints();
@@ -55,6 +68,9 @@ public class PointsRecordServiceImpl extends ServiceImpl<PointsRecordMapper, Poi
         p.setUserId(userId);
         p.setType(type);
         save(p);
+
+        String key= RedisConstants.POINTS_BOARD_KEY_PREFIX+DateUtils.POINTS_BOARD_SUFFIX_FORMATTER.format(now);
+        redisTemplate.opsForZSet().incrementScore(key, userId.toString(), realPoints);
     }
 
     private int queryUserPointsByTypeAndDate(Long userId, PointsRecordType type, LocalDateTime begin, LocalDateTime end) {
