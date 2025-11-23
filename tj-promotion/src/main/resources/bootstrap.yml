@@ -24,6 +24,7 @@ spring:
             refresh: false
           - data-id: shared-xxljob.yaml # 共享mq配置
             refresh: false
+
 tj:
   swagger:
     enable: true
@@ -40,3 +41,5 @@ tj:
   auth:
     resource:
       enable: true # 开启登录拦截的功能
+      excludeLoginPaths:
+        - /coupons/list
