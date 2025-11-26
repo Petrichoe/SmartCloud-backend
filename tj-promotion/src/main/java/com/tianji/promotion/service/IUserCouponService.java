@@ -1,5 +1,6 @@
 package com.tianji.promotion.service;
 
+import com.tianji.promotion.domain.dto.UserCouponDTO;
 import com.tianji.promotion.domain.po.Coupon;
 import com.tianji.promotion.domain.po.UserCoupon;
 import com.baomidou.mybatisplus.extension.service.IService;
@@ -22,5 +23,10 @@ public interface IUserCouponService extends IService<UserCoupon> {
 
     void exchangeCoupon(String code);
 
+    /**
+     * 异步领取优惠券(消费MQ消息)
+     * @param dto 用户优惠券信息
+     */
+    void asyncReceiveCoupon(UserCouponDTO dto);
 
 }

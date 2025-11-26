@@ -24,4 +24,19 @@ public interface RedisConstants {
      * value: 0-未使用，1-已使用
      */
     String COUPON_CODE_STATUS_KEY = "coupon:code:status";
+
+    String COUPON_CACHE_KEY_PREFIX = "prs:coupon:";
+
+    String USER_COUPON_CACHE_KEY_SUFFIX = ":usr:coupon";
+
+    /**
+     * 优惠券库存缓存key
+     * 用于缓存优惠券的库存信息,提高查询性能
+     */
+    String COUPON_STOCK_KEY_PREFIX = "coupon:stock:";
+
+    /**
+     * Redis中优惠卷Key
+     */
+    String USER_COUPON_CACHE_KEY = "prs:user:coupon:";
 }
