@@ -1,5 +1,6 @@
 package com.tianji.promotion.service.impl;
 
+import com.tianji.common.autoconfigure.redisson.annotations.Lock;
 import com.tianji.common.constants.MqConstants;
 import com.tianji.common.exceptions.BadRequestException;
 import com.tianji.common.exceptions.BizIllegalException;
@@ -27,6 +28,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.Map;
 
 /**
  * <p>
@@ -58,44 +60,50 @@ public class UserCouponServiceImpl extends ServiceImpl<UserCouponMapper, UserCou
 
     @Override
     public void getUserCoupon(Long couponId) {
+        // 获取当前用户ID
         Long userId = UserContext.getUser();
         if (userId == null) {
             throw new BadRequestException("用户未登录");
         }
 
+        // 1.基于Redis缓存校验优惠券信息
         String cacheKey = RedisConstants.COUPON_CACHE_KEY_PREFIX + couponId;
-        String userCouponKey = RedisConstants.COUPON_CACHE_KEY_PREFIX + couponId
-                + RedisConstants.USER_COUPON_CACHE_KEY_SUFFIX;
+        Map<Object, Object> couponCache = redisTemplate.opsForHash().entries(cacheKey);
 
-        Long result = redisTemplate.execute(
-                RECEIVE_COUPON_SCRIPT,
-                java.util.List
-                        .of(cacheKey, userCouponKey),
-                userId.toString()
-        );
-
-        if (result == null || result != 0) {
-            String errorMsg;
-            switch (result == null ? -1 : result.intValue()) {
-                case 1:
-                    errorMsg = "优惠券未开始发放或已结束";
-                    break;
-                case 2:
-                    errorMsg = "优惠券库存不足";
-                    break;
-                case 3:
-                    errorMsg = "优惠券发放已经结束";
-                    break;
-                case 4:
-                    errorMsg = "超出领取数量";
-                    break;
-                default:
-                    errorMsg = "领取失败";
-                    break;
-            }
-            throw new BadRequestException(errorMsg);
+        if (couponCache.isEmpty()) {
+            // Redis中没有缓存，说明优惠券未开始发放或已暂停
+            throw new BadRequestException("优惠券未开始发放或已结束");
         }
 
+        // 2.校验发放时间（基于Redis缓存）
+        Long issueBeginTime = Long.valueOf(couponCache.get("issueBeginTime").toString());
+        Long issueEndTime = Long.valueOf(couponCache.get("issueEndTime").toString());
+        long now = System.currentTimeMillis();
+        if (now < issueBeginTime || now > issueEndTime) {
+            throw new BadRequestException("优惠券发放已经结束或尚未开始");
+        }
+
+        // 3.校验用户限领数量（基于Redis缓存）
+        Integer userLimit = Integer.valueOf(couponCache.get("userLimit").toString());
+        String userCouponKey = RedisConstants.COUPON_CACHE_KEY_PREFIX + couponId
+                + RedisConstants.USER_COUPON_CACHE_KEY_SUFFIX + userId;
+        String userReceivedStr = redisTemplate.opsForValue().get(userCouponKey);
+        int userReceived = userReceivedStr == null ? 0 : Integer.parseInt(userReceivedStr);
+        if (userReceived >= userLimit) {
+            throw new BadRequestException("超出领取数量");
+        }
+
+        // 4.基于Redis预扣库存,快速失败
+        String stockKey = RedisConstants.COUPON_STOCK_KEY_PREFIX + couponId;
+        Long stock = redisTemplate.opsForValue().decrement(stockKey);
+        if (stock == null || stock < 0) {
+            // 库存不足,回滚Redis库存
+            redisTemplate.opsForValue().increment(stockKey);
+            log.warn("优惠券库存不足，快速失败: couponId={}, userId={}", couponId, userId);
+            throw new BadRequestException("优惠券库存不足");
+        }
+
+        // 5.发送MQ消息,异步领取优惠券
         UserCouponDTO dto = new UserCouponDTO();
         dto.setUserId(userId);
         dto.setCouponId(couponId);
@@ -107,8 +115,8 @@ public class UserCouponServiceImpl extends ServiceImpl<UserCouponMapper, UserCou
             );
             log.info("优惠券领取请求已发送到MQ: userId={}, couponId={}", userId, couponId);
         } catch (Exception e) {
-            rollbackRedisStock(couponId);
-            rollbackUserCouponCount(couponId, userId);
+            // 如果发送MQ失败,回滚Redis库存
+            redisTemplate.opsForValue().increment(stockKey);
             log.error("发送优惠券领取消息失败: userId={}, couponId={}", userId, couponId, e);
             throw new BizIllegalException("系统繁忙，请稍后再试");
         }
@@ -116,44 +124,58 @@ public class UserCouponServiceImpl extends ServiceImpl<UserCouponMapper, UserCou
 
     @Override
     public void asyncReceiveCoupon(UserCouponDTO dto) {
+        // 1.查询优惠券信息
         Coupon coupon = couponMapper.selectById(dto.getCouponId());
         if (coupon == null) {
             log.error("优惠券不存在: couponId={}", dto.getCouponId());
+            // 回滚Redis库存
             rollbackRedisStock(dto.getCouponId());
-            rollbackUserCouponCount(dto.getCouponId(), dto.getUserId());
             return;
         }
 
+        // 2.执行核心领取逻辑(分布式锁+事务保护)
         try {
             IUserCouponService proxy = (IUserCouponService) AopContext.currentProxy();
             proxy.checkAndCreateUserCoupon(coupon, dto.getUserId(), null);
+
+            // 3.领取成功后，更新用户已领取数量缓存
+            String userCouponKey = RedisConstants.COUPON_CACHE_KEY_PREFIX + dto.getCouponId()
+                    + RedisConstants.USER_COUPON_CACHE_KEY_SUFFIX + dto.getUserId();
+            redisTemplate.opsForValue().increment(userCouponKey);
+
             log.info("优惠券领取成功: userId={}, couponId={}", dto.getUserId(), dto.getCouponId());
         } catch (Exception e) {
+            // 业务处理失败,回滚Redis库存
             rollbackRedisStock(dto.getCouponId());
-            rollbackUserCouponCount(dto.getCouponId(), dto.getUserId());
             log.error("优惠券领取失败: userId={}, couponId={}, error={}",
                     dto.getUserId(), dto.getCouponId(), e.getMessage());
+            // 注意：这里不抛异常，避免消息重试导致重复回滚库存
         }
     }
 
+    /**
+     * 回滚Redis库存
+     */
     private void rollbackRedisStock(Long couponId) {
-        String cacheKey = RedisConstants.COUPON_CACHE_KEY_PREFIX + couponId;
-        redisTemplate.opsForHash().increment(cacheKey, "totalNum", 1);
+        String stockKey = RedisConstants.COUPON_STOCK_KEY_PREFIX + couponId;
+        redisTemplate.opsForValue().increment(stockKey);
         log.info("回滚Redis库存: couponId={}", couponId);
     }
 
-    private void rollbackUserCouponCount(Long couponId, Long userId) {
-        String userCouponKey = RedisConstants.COUPON_CACHE_KEY_PREFIX + couponId
-                + RedisConstants.USER_COUPON_CACHE_KEY_SUFFIX;
-        redisTemplate.opsForHash().increment(userCouponKey, userId.toString(), -1);
-        log.info("回滚用户领取数量: couponId={}, userId={}", couponId, userId);
-    }
-
+    @Lock(name="lock:coupon：#{userId}") //SPEL表达式动态锁名称
     @Transactional // 这里进事务，同时，事务方法一定要public修饰
     @Override
     public void checkAndCreateUserCoupon(Coupon coupon, Long userId, Integer serialNum){
-        // 1.校验每人限领数量 - 已在Lua脚本中完成，此处无需再校验
-
+        // 1.校验每人限领数量
+        // 1.1.统计当前用户对当前优惠券的已经领取的数量
+        Integer count = lambdaQuery()
+                .eq(UserCoupon::getUserId, userId)
+                .eq(UserCoupon::getCouponId, coupon.getId())
+                .count();
+        // 1.2.校验限领数量
+        if (count != null && count >= coupon.getUserLimit()) {
+            throw new BadRequestException("超出领取数量");
+        }
         // 2.更新优惠券的已经发放的数量 + 1
         int r = couponMapper.incrIssueNum(coupon.getId());
         if (r == 0) {

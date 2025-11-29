@@ -4,10 +4,8 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.tianji.common.domain.dto.PageDTO;
 import com.tianji.common.exceptions.BadRequestException;
 import com.tianji.common.exceptions.BizIllegalException;
-import com.tianji.common.utils.BeanUtils;
-import com.tianji.common.utils.CollUtils;
-import com.tianji.common.utils.StringUtils;
-import com.tianji.common.utils.UserContext;
+import com.tianji.common.utils.*;
+import com.tianji.promotion.constants.RedisConstants;
 import com.tianji.promotion.domain.dto.CouponFormDTO;
 import com.tianji.promotion.domain.dto.CouponIssueFormDTO;
 import com.tianji.promotion.domain.po.Coupon;
@@ -26,11 +24,13 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.tianji.promotion.service.IExchangeCodeService;
 import com.tianji.promotion.service.IUserCouponService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -54,6 +54,8 @@ public class CouponServiceImpl extends ServiceImpl<CouponMapper, Coupon> impleme
     private final IExchangeCodeService codeService;
 
     private final IUserCouponService userCouponService;
+
+    private final StringRedisTemplate redisTemplate;
 
     @Override
     public void addCoupon(CouponFormDTO dto) {
@@ -135,6 +137,15 @@ public class CouponServiceImpl extends ServiceImpl<CouponMapper, Coupon> impleme
         // 4.3.写入数据库
         updateById(c);
 
+        // 5.添加缓存，前提是立刻发放的
+        if (isBegin) {
+            coupon.setIssueBeginTime(c.getIssueBeginTime());
+            coupon.setIssueEndTime(c.getIssueEndTime());
+            cacheCouponInfo(coupon);
+            // 初始化Redis库存
+            initCouponStock(coupon);
+        }
+
 
         // 5.判断是否需要生成兑换码，优惠券类型必须是兑换码，优惠券状态必须是待发放
         if(coupon.getObtainWay() == ObtainType.ISSUE && coupon.getStatus() == CouponStatus.DRAFT){
@@ -145,7 +156,20 @@ public class CouponServiceImpl extends ServiceImpl<CouponMapper, Coupon> impleme
         // 6.如果是从暂停状态恢复发放，且是兑换码类型，需要更新兑换码过期时间
         if(coupon.getObtainWay() == ObtainType.ISSUE && coupon.getStatus() == PAUSE){
             codeService.updateCodeExpiredTime(coupon.getId(), c.getIssueEndTime());
+            // 恢复发放时也需要初始化Redis库存
+            initCouponStock(coupon);
         }
+    }
+
+    private void cacheCouponInfo(Coupon coupon) {
+        // 1.组织数据
+        Map<String, String> map = new HashMap<>(4);
+        map.put("issueBeginTime", String.valueOf(DateUtils.toEpochMilli(coupon.getIssueBeginTime())));
+        map.put("issueEndTime", String.valueOf(DateUtils.toEpochMilli(coupon.getIssueEndTime())));
+        map.put("totalNum", String.valueOf(coupon.getTotalNum()));
+        map.put("userLimit", String.valueOf(coupon.getUserLimit()));
+        // 2.写缓存
+        redisTemplate.opsForHash().putAll(RedisConstants.COUPON_CACHE_KEY_PREFIX + coupon.getId(), map);
     }
 
     @Transactional
@@ -187,6 +211,9 @@ public class CouponServiceImpl extends ServiceImpl<CouponMapper, Coupon> impleme
         if (!success) {
             throw new BizIllegalException("优惠券状态已变更，暂停失败！");
         }
+
+        // 4.删除缓存
+        redisTemplate.delete(RedisConstants.COUPON_CACHE_KEY_PREFIX + id);
     }
 
     @Override
@@ -234,6 +261,16 @@ public class CouponServiceImpl extends ServiceImpl<CouponMapper, Coupon> impleme
         }
         return list;
 
+    }
+
+    /**
+     * 初始化优惠券Redis库存
+     */
+    private void initCouponStock(Coupon coupon) {
+        String stockKey = RedisConstants.COUPON_STOCK_KEY_PREFIX + coupon.getId();
+        // 计算剩余库存: 总数量 - 已发放数量
+        int remainStock = coupon.getTotalNum() - coupon.getIssueNum();
+        redisTemplate.opsForValue().set(stockKey, String.valueOf(remainStock));
     }
 
 
