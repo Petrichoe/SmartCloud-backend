@@ -69,7 +69,8 @@ public class UserCouponServiceImpl extends ServiceImpl<UserCouponMapper, UserCou
 
         Long result = redisTemplate.execute(
                 RECEIVE_COUPON_SCRIPT,
-                java.util.List.of(cacheKey, userCouponKey),
+                java.util.List
+                        .of(cacheKey, userCouponKey),
                 userId.toString()
         );
 
