@@ -45,3 +45,9 @@ tj:
       enable: true # 开启登录拦截的功能
       excludeLoginPaths:
         - /coupons/list
+  promotion:
+    code:
+      # 兑换码XOR混淆密钥种子（生产环境请修改为复杂密钥并通过环境变量注入）
+      xor-secret: ${EXCHANGE_CODE_XOR_SECRET:tianji-xor-prod-key-20251130-change-me-in-production}
+      # 兑换码质数表密钥种子（生产环境请修改为复杂密钥并通过环境变量注入）
+      prime-secret: ${EXCHANGE_CODE_PRIME_SECRET:tianji-prime-prod-key-20251130-change-me-in-production}

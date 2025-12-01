@@ -171,6 +171,10 @@ public class UserCouponServiceImpl extends ServiceImpl<UserCouponMapper, UserCou
         }
     }
 
+    /**
+     * 兑换码兑换优惠券
+     * @param code
+     */
     @Override
     @Transactional
     public void exchangeCoupon(String code) {
