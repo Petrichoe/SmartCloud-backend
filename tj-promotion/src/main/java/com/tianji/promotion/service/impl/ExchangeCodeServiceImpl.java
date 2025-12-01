@@ -37,10 +37,12 @@ import static com.tianji.promotion.enums.ExchangeCodeStatus.*;
 public class ExchangeCodeServiceImpl extends ServiceImpl<ExchangeCodeMapper, ExchangeCode> implements IExchangeCodeService {
     private final StringRedisTemplate redisTemplate;
     private final BoundValueOperations<String, String> serialOps;
+    private final CodeUtil codeUtil;
 
-    public ExchangeCodeServiceImpl(StringRedisTemplate redisTemplate) {
+    public ExchangeCodeServiceImpl(StringRedisTemplate redisTemplate, CodeUtil codeUtil) {
         this.redisTemplate = redisTemplate;
         this.serialOps = redisTemplate.boundValueOps(COUPON_CODE_SERIAL_KEY);
+        this.codeUtil = codeUtil;
     }
 
     @Override
@@ -56,8 +58,8 @@ public class ExchangeCodeServiceImpl extends ServiceImpl<ExchangeCodeMapper, Exc
         int maxSerialNum = result.intValue();
         List<ExchangeCode> list = new ArrayList<>(totalNum);
         for (int serialNum = maxSerialNum - totalNum + 1; serialNum <= maxSerialNum; serialNum++) {
-            // 2.生成兑换码
-            String code = CodeUtil.generateCode(serialNum, coupon.getId());
+            // 2.生成兑换码（使用注入的codeUtil实例）
+            String code = codeUtil.generateCode(serialNum, coupon.getId());
             ExchangeCode e = new ExchangeCode();
             e.setCode(code);
             e.setId(serialNum);
@@ -91,8 +93,8 @@ public class ExchangeCodeServiceImpl extends ServiceImpl<ExchangeCodeMapper, Exc
 
     @Override
     public ExchangeCodeStatus checkCodeStatus(String code) {
-        // 1.解析兑换码，得到序列号
-        long serialNum = CodeUtil.parseCode(code);
+        // 1.解析兑换码，得到序列号（使用注入的codeUtil实例）
+        long serialNum = codeUtil.parseCode(code);
         // 2.从BitMap中查询兑换码是否已使用
         Boolean used = redisTemplate.opsForValue().getBit(COUPON_CODE_STATUS_KEY, serialNum);
         // 3.如果已使用，直接返回已使用状态
